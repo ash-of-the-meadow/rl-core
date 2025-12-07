@@ -142,7 +142,7 @@ export class PluginManager {
             const manifest = await res.json();
             for (const configuration of manifest) pluginConfigs.push(configuration as PluginConfig);
         } catch (e) {
-            console.error('[Highlite] Failed to fetch plugin configs from mirror', e);
+            console.error('[Ryelite] Failed to fetch plugin configs from mirror', e);
         }
         return pluginConfigs;
     }
@@ -271,17 +271,26 @@ export class PluginManager {
             installBtn.onclick = async () => {
                 installBtn.disabled = true;
                 try {
-                    if (!plugin.config) return;
+                    console.log(`[Ryelite] Attempting to install plugin: ${plugin.config?.display_name ?? plugin.config?.repository_name}`);
+                    if (!plugin.config)
+                    {
+                        console.error('[Ryelite] Plugin config is undefined during install!');
+                        return;
+                    }
+
                     const matchingAssetUrl = await this.downloadAndVerifyAsset(plugin.config);
                     if (!matchingAssetUrl) throw new Error(`No asset matched SHA: ${plugin.config.asset_sha}`);
+                    console.log(`[Ryelite] Importing plugin module from URL: ${matchingAssetUrl}`);
                     const pluginModule = await import(/* @vite-ignore */ matchingAssetUrl);
                     const PluginClass = pluginModule.default;
                     if (typeof PluginClass !== 'function') throw new Error('Default export is not a valid plugin class');
 
                     // Associate the class to this managedPlugin before registering to avoid duplicates
                     plugin.class = PluginClass;
+                    console.log(`[Ryelite] Registering plugin class for: ${plugin.config.display_name ?? plugin.config.repository_name}`);
                     this.registerPlugin(PluginClass);
 
+                    console.log(`[Ryelite] Persisting plugin to database: ${plugin.config.display_name ?? plugin.config.repository_name}`);
                     // Persist
                     await this.databaseManager.database?.put(
                         'plugins',
@@ -292,7 +301,9 @@ export class PluginManager {
                         plugin.config.display_name ?? plugin.config.repository_name
                     );
 
+                    console.log(`[Ryelite] Plugin installed successfully: ${plugin.config.display_name ?? plugin.config.repository_name}`);
                     await this.settingsManager.refresh();
+
                     uninstallButton.disabled = false;
                     // mark installed version in-memory
                     plugin.installedConfig = plugin.config;
@@ -301,7 +312,7 @@ export class PluginManager {
                     updateButton.style.display = 'none';
                     actionsRow.appendChild(uninstallButton);
                 } catch (error) {
-                    console.error(`[Highlite] Failed to install plugin:`, error);
+                    console.error(`[Ryelite] Failed to install plugin:`, error);
                     installBtn.textContent = 'Failed';
                     installBtn.classList.add('error');
                 } finally {
@@ -334,7 +345,7 @@ export class PluginManager {
                     updateButton.style.display = 'none';
                     actionsRow.appendChild(installBtn);
                 } catch (error) {
-                    console.error(`[Highlite] Failed to uninstall plugin:`, error);
+                    console.error(`[Ryelite] Failed to uninstall plugin:`, error);
                     uninstallButton.textContent = 'Failed';
                 }
             };
@@ -370,7 +381,7 @@ export class PluginManager {
                     updateButton.style.display = 'none';
                     await this.settingsManager.refresh();
                 } catch (error) {
-                    console.error(`[Highlite] Failed to update plugin:`, error);
+                    console.error(`[Ryelite] Failed to update plugin:`, error);
                     updateButton.textContent = 'Failed';
                 } finally {
                     updateButton.disabled = false;
@@ -426,7 +437,7 @@ export class PluginManager {
                 }
                 this.registerPlugin(pluginClass);
             } catch (e) {
-                console.error('[Highlite] Failed to load installed plugin', e);
+                console.error('[Ryelite] Failed to load installed plugin', e);
                 URL.revokeObjectURL(url);
                 return undefined;
             }
@@ -453,10 +464,13 @@ export class PluginManager {
         if (config.asset_sha) {
             const hex = "sha256:" + await this.sha256Hex(buffer);
             const expected = (config.asset_sha ?? '').toLowerCase();
-            if (hex !== expected) throw new Error(`[Highlite] Mirror asset sha mismatch for ${config.repository_name}. expected=${expected} actual=${hex}`);
+            if (hex !== expected) throw new Error(`[Ryelite] Mirror asset sha mismatch for ${config.repository_name}. expected=${expected} actual=${hex}`);
         }
+        console.log(`[Ryelite] Downloaded and verified plugin asset for ${config.repository_name} from Highlite mirror`);
         const blob = new Blob([buffer], { type: 'application/javascript' });
+        console.log(`[Ryelite] Created blob for plugin ${config.repository_name}, size=${blob.size} bytes, contents=${blob.text}`);
         const url = URL.createObjectURL(blob);
+        console.log(`[Ryelite] Created object URL for plugin ${config.repository_name}: ${url}`);
         const managed = this.managedPlugins.find((mp) => (mp.config?.display_name ?? mp.config?.repository_name) === (config.display_name ?? config.repository_name));
         if (managed) {
             managed.blob = blob;
@@ -527,7 +541,7 @@ export class PluginManager {
 
     registerPlugin<T extends Plugin>(pluginClass: new () => T): boolean {
         const pluginInstance = new pluginClass();
-        console.info(`[Highlite] New plugin ${pluginInstance.pluginName} registered`);
+        console.info(`[Ryelite] New plugin ${pluginInstance.pluginName} registered`);
         // Find or create managed entry by class
         let managedPlugin = this.managedPlugins.find((mp) => mp.class === pluginClass);
         if (!managedPlugin) {
@@ -562,7 +576,7 @@ export class PluginManager {
             try {
                 plugin.instance?.init();
             } catch (error) {
-                console.error(`[Highlite] Error initializing plugin ${plugin.instance?.pluginName}:`, error);
+                console.error(`[Ryelite] Error initializing plugin ${plugin.instance?.pluginName}:`, error);
             }
         }
     }
@@ -572,7 +586,7 @@ export class PluginManager {
             try {
                 if (plugin.instance?.postInit) plugin.instance.postInit();
             } catch (error) {
-                console.error(`[Highlite] Error post-initializing plugin ${plugin.instance?.pluginName}:`, error);
+                console.error(`[Ryelite] Error post-initializing plugin ${plugin.instance?.pluginName}:`, error);
             }
         }
     }
@@ -583,7 +597,7 @@ export class PluginManager {
                 try {
                     plugin.instance?.start();
                 } catch (error) {
-                    console.error(`[Highlite] Error starting plugin ${plugin.instance?.pluginName}:`, error);
+                    console.error(`[Ryelite] Error starting plugin ${plugin.instance?.pluginName}:`, error);
                 }
             }
         }
@@ -595,7 +609,7 @@ export class PluginManager {
                 try {
                     plugin.instance?.stop();
                 } catch (error) {
-                    console.error(`[Highlite] Error stopping plugin ${plugin.instance?.pluginName}:`, error);
+                    console.error(`[Ryelite] Error stopping plugin ${plugin.instance?.pluginName}:`, error);
                 }
             }
         }
@@ -622,7 +636,7 @@ export class PluginManager {
             }
             return true;
         } catch (error) {
-            console.error(`[Highlite] Error unregistering plugin ${plugin.pluginName}:`, error);
+            console.error(`[Ryelite] Error unregistering plugin ${plugin.pluginName}:`, error);
             return false;
         }
     }
